@@ -1,0 +1,8 @@
+/target
+.idea/
+*.iml
+*~
+*#
+results*.txt
+TestSuite*
+*.snap
