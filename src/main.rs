@@ -90,6 +90,9 @@ fn main() {
 
             for i in 0..number_of_copies {
                 for j in 0..CHANGED_ELEMENTS {
+                    if data_vector.len() == 0 {
+                        continue;
+                    }
                     let random_index = thread_rng().gen_range(0..data_vector.len());
                     let random_value = thread_rng().gen_range(0..=255u8);
                     random_indexes[j] = random_index;
@@ -112,25 +115,27 @@ fn main() {
                         continue;
                     }
                 };
+                if data_vector.len() != 0 {
+                    let size;
+                    // Small change to randomly split
+                    if thread_rng().gen_range(0..10) == 0 {
+                        size = thread_rng().gen_range(0..data_vector.len());
+                    } else {
+                        size = data_vector.len();
+                    }
+                    // Normal full saving
 
-                let size;
-                // Small change to randomly split
-                if thread_rng().gen_range(0..10) == 0 {
-                    size = thread_rng().gen_range(0..data_vector.len());
-                } else {
-                    size = data_vector.len();
-                }
-                // Normal full saving
-                if file_handler.write(&(data_vector[..size])).is_err() {
+                    if file_handler.write(&(data_vector[..size])).is_err() {
+                        for j in 0..CHANGED_ELEMENTS {
+                            data_vector[random_indexes[j]] = old_values[j];
+                        }
+                        println!("Failed to save data to file {}", new_file_name);
+                        continue;
+                    }
+
                     for j in 0..CHANGED_ELEMENTS {
                         data_vector[random_indexes[j]] = old_values[j];
                     }
-                    println!("Failed to save data to file {}", new_file_name);
-                    continue;
-                }
-
-                for j in 0..CHANGED_ELEMENTS {
-                    data_vector[random_indexes[j]] = old_values[j];
                 }
             }
         }
