@@ -1,8 +1,10 @@
 [package]
 name = "create_broken_files"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Rafał Mikrut <mikrutrafal@protonmail.com>"]
 edition = "2018"
+description = "Create broken files from other ones"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
