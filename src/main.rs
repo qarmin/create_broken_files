@@ -13,7 +13,7 @@ fn main() {
     let number_of_copies: u64;
 
     let mut files_to_check: Vec<PathBuf> = Vec::new();
-    let mut process_characters;
+    let process_characters;
 
     if all_arguments.len() >= 3 {
         let thing_to_check = all_arguments[1].clone();
@@ -155,30 +155,35 @@ where
         return None;
     }
 
-    split_content(thread_rng, &mut data, 0.5);
-    if data.is_empty() {
-        return None;
+    if thread_rng.gen_bool(0.5) {
+        split_content(thread_rng, &mut data);
+        if data.is_empty() {
+            return None;
+        }
     }
 
-    let changed_items = min(data.len() / 5, 5);
-    remove_random_items(thread_rng, &mut data, changed_items);
-    if data.is_empty() {
-        return None;
+    if thread_rng.gen_bool(0.5) {
+        let changed_items = min(data.len() / 5, 5);
+        remove_random_items(thread_rng, &mut data, changed_items);
+        if data.is_empty() {
+            return None;
+        }
     }
 
-    let changed_items = min(data.len() / 5, 5);
-    modify_random_items(thread_rng, &mut data, changed_items);
-    if data.is_empty() {
-        return None;
+    if thread_rng.gen_bool(0.5) {
+        let changed_items = min(data.len() / 5, 5);
+        modify_random_items(thread_rng, &mut data, changed_items);
+        if data.is_empty() {
+            return None;
+        }
     }
 
     Some(data)
 }
 
-fn split_content<T>(rng: &mut ThreadRng, data: &mut Vec<T>, probability: f32) {
+fn split_content<T>(rng: &mut ThreadRng, data: &mut Vec<T>) {
     let idx = get_random_idx(rng, data.as_slice());
-    let size = if rng.gen_range(0.0..100.0) < probability { idx } else { data.len() };
-    data.truncate(size)
+    data.truncate(idx)
 }
 
 fn remove_random_items<T>(rng: &mut ThreadRng, data: &mut Vec<T>, item_number: usize) {
