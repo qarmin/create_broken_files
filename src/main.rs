@@ -13,6 +13,7 @@ fn main() {
     let number_of_copies: u64;
 
     let mut files_to_check: Vec<PathBuf> = Vec::new();
+    let mut process_characters;
 
     if all_arguments.len() >= 3 {
         let thing_to_check = all_arguments[1].clone();
@@ -56,13 +57,14 @@ fn main() {
                 process::exit(1);
             }
         };
+
+        process_characters = all_arguments.contains(&"CHARS".to_string());
+
         println!(); // To disable stupid clippy message
     } else {
         println!("You must provide file/folder and number of broken copies!");
         process::exit(1);
     }
-
-    let process_characters = false;
 
     files_to_check.retain(|e| e.to_string_lossy().to_string().contains('.'));
 
@@ -73,14 +75,15 @@ fn main() {
             };
 
             if process_characters {
+                process_file_characters(full_name, file_name, extension, number_of_copies);
             } else {
-                process_bytes(full_name, file_name, extension, number_of_copies);
+                process_file_bytes(full_name, file_name, extension, number_of_copies);
             }
         }
     });
 }
 
-fn process_bytes(original_name: String, file_name: String, extension: String, repeats: u64) {
+fn process_file_bytes(original_name: String, file_name: String, extension: String, repeats: u64) {
     let data_vector: Vec<u8> = match fs::read(&original_name) {
         Ok(t) => t,
         Err(_) => {
@@ -88,49 +91,89 @@ fn process_bytes(original_name: String, file_name: String, extension: String, re
             return;
         }
     };
+
     let mut thread_rng = thread_rng();
 
-    for i in 0..repeats {
-        let new_file_name = format!("{file_name}{i}.{extension}");
+    for idx in 0..repeats {
+        let new_file_name = format!("{file_name}{idx}.{extension}");
         let mut file_handler = match OpenOptions::new().create(true).write(true).open(&new_file_name) {
             Ok(t) => t,
             Err(_) => {
                 println!("Failed to create file {}", new_file_name);
-                continue;
+                return;
             }
         };
-
-        let mut data = data_vector.clone();
-        if data.is_empty() {
+        let Some(data) =  process_single_general(&mut thread_rng, &data_vector) else {
             continue;
-        }
+        };
 
-        split_content(&mut thread_rng, &mut data, 0.5);
-        if data.is_empty() {
-            continue;
-        }
-
-        let changed_items = min(data.len() / 5, 5);
-        remove_random_items(&mut thread_rng, &mut data, changed_items);
-        if data.is_empty() {
-            continue;
-        }
-
-        let changed_items = min(data.len() / 5, 5);
-        modify_random_items(&mut thread_rng, &mut data, changed_items);
-        if data.is_empty() {
-            continue;
-        }
-
-        if file_handler.write(&data).is_err() {
+        if file_handler.write_all(&data).is_err() {
             println!("Failed to save data to file {}", new_file_name);
             continue;
         }
     }
 }
-// fn process_general<T>(data: Vec<T>, file_name: String, extension: String, repeats: u64) {
-//
-// }
+
+fn process_file_characters(original_name: String, file_name: String, extension: String, repeats: u64) {
+    let data_vector: Vec<char> = match fs::read_to_string(&original_name) {
+        Ok(t) => t.chars().collect(),
+        Err(_) => {
+            println!("Failed to read data from file {:?}!", original_name);
+            return;
+        }
+    };
+
+    let mut thread_rng = thread_rng();
+
+    for idx in 0..repeats {
+        let new_file_name = format!("{file_name}{idx}.{extension}");
+        let mut file_handler = match OpenOptions::new().create(true).write(true).open(&new_file_name) {
+            Ok(t) => t,
+            Err(_) => {
+                println!("Failed to create file {}", new_file_name);
+                return;
+            }
+        };
+        let Some(data) =  process_single_general(&mut thread_rng, &data_vector) else {
+            continue;
+        };
+
+        if file_handler.write_all(data.into_iter().collect::<String>().as_bytes()).is_err() {
+            println!("Failed to save data to file {}", new_file_name);
+            continue;
+        }
+    }
+}
+
+fn process_single_general<T>(thread_rng: &mut ThreadRng, data_vector: &[T]) -> Option<Vec<T>>
+where
+    T: Clone,
+    rand::distributions::Standard: rand::distributions::Distribution<T>,
+{
+    let mut data = data_vector.to_vec();
+    if data.is_empty() {
+        return None;
+    }
+
+    split_content(thread_rng, &mut data, 0.5);
+    if data.is_empty() {
+        return None;
+    }
+
+    let changed_items = min(data.len() / 5, 5);
+    remove_random_items(thread_rng, &mut data, changed_items);
+    if data.is_empty() {
+        return None;
+    }
+
+    let changed_items = min(data.len() / 5, 5);
+    modify_random_items(thread_rng, &mut data, changed_items);
+    if data.is_empty() {
+        return None;
+    }
+
+    Some(data)
+}
 
 fn split_content<T>(rng: &mut ThreadRng, data: &mut Vec<T>, probability: f32) {
     let idx = get_random_idx(rng, data.as_slice());
