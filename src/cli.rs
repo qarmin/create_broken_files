@@ -23,6 +23,7 @@ struct Cli {
     #[arg(
         short,
         long,
+        num_args = 1..,
         value_name = "WORDS",
         help = "List of items that will be added randomly to code. The best results to check language parsers you got when here is a full list of used keywords and symbols(new, let, var, ;, :, ? etc.)"
     )]
