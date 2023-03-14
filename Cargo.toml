@@ -11,3 +11,4 @@ license = "MIT"
 [dependencies]
 rand = "0.8.5"
 rayon = "1.7.0"
+clap = { version = "4.1.8", features = ["derive"] }

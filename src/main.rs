@@ -1,89 +1,46 @@
 use std::cmp::min;
+use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::{env, fs, process};
+use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use rand::prelude::ThreadRng;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
+mod cli;
+
 fn main() {
-    let all_arguments: Vec<String> = env::args().collect();
-    let number_of_copies: u64;
+    cli::parse_cli();
 
-    let mut files_to_check: Vec<PathBuf> = Vec::new();
-    let process_characters;
+    let (files_to_check, output_path, number_of_broken_files, character_mode, special_words) = cli::parse_cli();
+    let all_files_to_create = files_to_check.len() * number_of_broken_files as usize;
+    println!("Collected {} files to check, creating {} broken files ({} per file)", files_to_check.len(), all_files_to_create, number_of_broken_files);
 
-    if all_arguments.len() >= 3 {
-        let thing_to_check = all_arguments[1].clone();
-
-        if !Path::new(&thing_to_check).exists() {
-            println!("Path should exists {}", thing_to_check);
-            process::exit(1);
-        }
-
-        let checked_thing = match fs::canonicalize(PathBuf::from(&thing_to_check)) {
-            Ok(t) => t,
-            Err(_) => {
-                println!("Failed to open file {}", thing_to_check);
-                process::exit(1);
-            }
-        };
-
-        if checked_thing.is_file() {
-            files_to_check.push(checked_thing);
-        } else if checked_thing.is_dir() {
-            let read_dir = match fs::read_dir(&checked_thing) {
-                Ok(t) => t,
-                Err(_) => {
-                    println!("Failed to get files in folder {:?}", checked_thing);
-                    process::exit(1);
-                }
-            };
-            for entry in read_dir.flatten() {
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_file() {
-                        files_to_check.push(entry.path());
-                    }
-                }
-            }
-        }
-
-        number_of_copies = match all_arguments[2].parse::<u64>() {
-            Ok(t) => t,
-            Err(_) => {
-                println!("Failed to parse number of copies");
-                process::exit(1);
-            }
-        };
-
-        process_characters = all_arguments.contains(&"CHARS".to_string());
-
-        println!(); // To disable stupid clippy message
-    } else {
-        println!("You must provide file/folder and number of broken copies!");
-        process::exit(1);
-    }
-
-    files_to_check.retain(|e| e.to_string_lossy().to_string().contains('.'));
+    let atomic_counter = AtomicU32::new(0);
 
     files_to_check.into_par_iter().for_each({
-        |file| {
-            let Some((full_name, file_name, extension)) = read_file_name_extension(file) else {
+        |full_name| {
+            let idx = atomic_counter.fetch_add(1, Ordering::Relaxed);
+            if idx % 10000 == 0 {
+                println!("Processed {}/{} broken files", idx, all_files_to_create);
+            }
+
+            let Some((file_name, extension)) = read_file_name_extension(&full_name) else {
                 return;
             };
 
-            if process_characters {
-                process_file_characters(full_name, file_name, extension, number_of_copies);
+            if character_mode {
+                process_file_characters(full_name, file_name, &output_path, extension, number_of_broken_files as u64, &special_words);
             } else {
-                process_file_bytes(full_name, file_name, extension, number_of_copies);
+                process_file_bytes(full_name, file_name, &output_path, extension, number_of_broken_files as u64);
             }
         }
     });
 }
 
-fn process_file_bytes(original_name: String, file_name: String, extension: String, repeats: u64) {
+fn process_file_bytes(original_name: String, file_name: String, output_path: &str, extension: String, repeats: u64) {
     let data_vector: Vec<u8> = match fs::read(&original_name) {
         Ok(t) => t,
         Err(_) => {
@@ -95,7 +52,7 @@ fn process_file_bytes(original_name: String, file_name: String, extension: Strin
     let mut thread_rng = thread_rng();
 
     for idx in 0..repeats {
-        let new_file_name = format!("{file_name}{idx}.{extension}");
+        let new_file_name = format!("{output_path}/{file_name}{idx}.{extension}");
         let mut file_handler = match OpenOptions::new().create(true).write(true).open(&new_file_name) {
             Ok(t) => t,
             Err(_) => {
@@ -103,7 +60,7 @@ fn process_file_bytes(original_name: String, file_name: String, extension: Strin
                 return;
             }
         };
-        let Some(data) =  process_single_general(&mut thread_rng, &data_vector) else {
+        let Some(data) = process_single_general(&mut thread_rng, &data_vector) else {
             continue;
         };
 
@@ -114,7 +71,7 @@ fn process_file_bytes(original_name: String, file_name: String, extension: Strin
     }
 }
 
-fn process_file_characters(original_name: String, file_name: String, extension: String, repeats: u64) {
+fn process_file_characters(original_name: String, file_name: String, output_path: &str, extension: String, repeats: u64, _special_words: &[String]) {
     let data_vector: Vec<char> = match fs::read_to_string(&original_name) {
         Ok(t) => t.chars().collect(),
         Err(_) => {
@@ -126,7 +83,7 @@ fn process_file_characters(original_name: String, file_name: String, extension: 
     let mut thread_rng = thread_rng();
 
     for idx in 0..repeats {
-        let new_file_name = format!("{file_name}{idx}.{extension}");
+        let new_file_name = format!("{output_path}/{file_name}{idx}.{extension}");
         let mut file_handler = match OpenOptions::new().create(true).write(true).open(&new_file_name) {
             Ok(t) => t,
             Err(_) => {
@@ -134,7 +91,7 @@ fn process_file_characters(original_name: String, file_name: String, extension: 
                 return;
             }
         };
-        let Some(data) =  process_single_general(&mut thread_rng, &data_vector) else {
+        let Some(data) = process_single_general(&mut thread_rng, &data_vector) else {
             continue;
         };
 
@@ -163,7 +120,8 @@ where
     }
 
     if thread_rng.gen_bool(0.5) {
-        let changed_items = min(data.len() / 5, 5);
+        let items_random = thread_rng.gen_range(1..6);
+        let changed_items = min(data.len() / 5, items_random);
         remove_random_items(thread_rng, &mut data, changed_items);
         if data.is_empty() {
             return None;
@@ -171,7 +129,8 @@ where
     }
 
     if thread_rng.gen_bool(0.5) {
-        let changed_items = min(data.len() / 5, 5);
+        let items_random = thread_rng.gen_range(1..6);
+        let changed_items = min(data.len() / 5, items_random);
         modify_random_items(thread_rng, &mut data, changed_items);
         if data.is_empty() {
             return None;
@@ -207,20 +166,20 @@ fn get_random_idx<T>(rng: &mut ThreadRng, data: &[T]) -> usize {
     rng.gen_range(0..data.len())
 }
 
-fn read_file_name_extension(file: PathBuf) -> Option<(String, String, String)> {
-    let full_name = match file.to_str() {
-        Some(k) => k.to_string(),
-        None => {
-            println!("File not have valid UTF-8 name {:?}!", file);
-            return None;
-        }
+fn read_file_name_extension(full_name: &str) -> Option<(String, String)> {
+    let full_name_path = Path::new(full_name);
+
+    let Some(file_name) = full_name_path.file_name() else {
+        println!("Failed to find file name");
+        return None;
     };
-    let dot_index = match full_name.rfind('.') {
-        Some(t) => t,
-        None => {
-            println!("File {} doesn't contains a required dot", full_name);
-            return None;
-        }
+    let file_name = file_name.to_string_lossy().to_string();
+
+    let Some(extension) = full_name_path.extension() else {
+        println!("Failed to find extension");
+        return None;
     };
-    Some((full_name.clone(), full_name[..dot_index].to_string(), full_name[(dot_index + 1)..].to_string()))
+    let extension = extension.to_string_lossy().to_string();
+
+    Some((file_name, extension))
 }
