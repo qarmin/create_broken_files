@@ -8,8 +8,6 @@ use rand::prelude::ThreadRng;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
-const CHANGED_ELEMENTS: usize = 10;
-
 fn main() {
     let all_arguments: Vec<String> = env::args().collect();
     let number_of_copies: u64;
@@ -58,6 +56,7 @@ fn main() {
                 process::exit(1);
             }
         };
+        println!(); // To disable stupid clippy message
     } else {
         println!("You must provide file/folder and number of broken copies!");
         process::exit(1);
@@ -118,7 +117,7 @@ fn process_bytes(original_name: String, file_name: String, extension: String, re
         }
 
         let changed_items = min(data.len() / 5, 5);
-        remove_random_items(&mut thread_rng, &mut data, changed_items);
+        modify_random_items(&mut thread_rng, &mut data, changed_items);
         if data.is_empty() {
             continue;
         }
@@ -146,7 +145,7 @@ fn remove_random_items<T>(rng: &mut ThreadRng, data: &mut Vec<T>, item_number: u
     }
 }
 
-fn modify_random_bytes<T>(rng: &mut ThreadRng, data: &mut Vec<T>, item_number: usize)
+fn modify_random_items<T>(rng: &mut ThreadRng, data: &mut Vec<T>, item_number: usize)
 where
     rand::distributions::Standard: rand::distributions::Distribution<T>,
 {
