@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
+use jwalk::WalkDir;
 use std::path::Path;
-use std::{fs, process};
+use std::process;
 
 #[derive(Parser)]
 #[command(name = "Create Broken Files")]
@@ -58,35 +59,20 @@ fn collect_files_to_check(input_path: String) -> Vec<String> {
         process::exit(1);
     }
 
-    let checked_thing = match fs::canonicalize(Path::new(&input_path)) {
-        Ok(t) => t,
-        Err(_) => {
-            println!("Failed to open {}", input_path);
-            process::exit(1);
-        }
-    };
-
     let mut files_to_check = Vec::new();
-    if checked_thing.is_file() {
-        files_to_check.push(checked_thing.to_string_lossy().to_string());
-    } else if checked_thing.is_dir() {
-        let read_dir = match fs::read_dir(&checked_thing) {
-            Ok(t) => t,
-            Err(_) => {
-                println!("Failed to get files in folder {:?}", checked_thing);
-                process::exit(1);
-            }
-        };
-        for entry in read_dir.flatten() {
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.is_file() {
-                    files_to_check.push(entry.path().to_string_lossy().to_string());
-                }
-            }
+    for i in WalkDir::new(&input_path).max_depth(999).into_iter().flatten() {
+        let path = i.path();
+        if i.path().is_file() {
+            files_to_check.push(path.to_string_lossy().to_string());
         }
     }
 
     files_to_check.retain(|e| e.contains('.'));
+
+    if files_to_check.is_empty() {
+        println!("No files to check");
+        process::exit(1);
+    }
 
     files_to_check
 }

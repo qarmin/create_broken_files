@@ -62,9 +62,18 @@ fn process_file_bytes(original_name: String, file_name: String, output_path: &st
                 return;
             }
         };
-        let Some(data) = process_single_general(&mut thread_rng, &data_vector) else {
+        let Some(mut data) = process_single_general(&mut thread_rng, &data_vector) else {
             continue;
         };
+
+        if thread_rng.gen_bool(0.5) {
+            let items_random = thread_rng.gen_range(1..6);
+            let changed_items = min(data.len() / 5, items_random);
+            modify_random_items(&mut thread_rng, &mut data, changed_items);
+            if data.is_empty() {
+                continue;
+            }
+        }
 
         if file_handler.write_all(&data).is_err() {
             println!("Failed to save data to file {}", new_file_name);
@@ -96,6 +105,15 @@ fn process_file_characters(original_name: String, file_name: String, output_path
         let Some(mut data) = process_single_general(&mut thread_rng, &data_vector) else {
             continue;
         };
+
+        if thread_rng.gen_bool(0.5) {
+            let items_random = thread_rng.gen_range(1..6);
+            let changed_items = min(data.len() / 5, items_random);
+            modify_random_char_items(&mut thread_rng, &mut data, changed_items);
+            if data.is_empty() {
+                continue;
+            }
+        }
 
         if !special_words.is_empty() && thread_rng.gen_bool(0.5) {
             let items_random = thread_rng.gen_range(1..5);
@@ -133,15 +151,6 @@ where
         let items_random = thread_rng.gen_range(1..6);
         let changed_items = min(data.len() / 5, items_random);
         remove_random_items(thread_rng, &mut data, changed_items);
-        if data.is_empty() {
-            return None;
-        }
-    }
-
-    if thread_rng.gen_bool(0.5) {
-        let items_random = thread_rng.gen_range(1..6);
-        let changed_items = min(data.len() / 5, items_random);
-        modify_random_items(thread_rng, &mut data, changed_items);
         if data.is_empty() {
             return None;
         }
@@ -193,6 +202,12 @@ where
     for _ in 0..item_number {
         let idx = get_random_idx(rng, data.as_slice());
         data[idx] = rng.gen::<T>();
+    }
+}
+fn modify_random_char_items(rng: &mut ThreadRng, data: &mut Vec<char>, item_number: usize) {
+    for _ in 0..item_number {
+        let idx = get_random_idx(rng, data.as_slice());
+        data[idx] = rng.gen_range(0..=255).into();
     }
 }
 
