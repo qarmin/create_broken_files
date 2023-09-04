@@ -1,7 +1,5 @@
 use std::cmp::min;
 use std::fs;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -17,7 +15,7 @@ fn main() {
     let (files_to_check, output_path, number_of_broken_files, character_mode, special_words) = cli::parse_cli();
     let all_broken_files_to_create = files_to_check.len() * number_of_broken_files as usize;
     let initial_files_number = files_to_check.len();
-    println!("Collected {} files to check, creating {} broken files ({} per file)", initial_files_number, all_broken_files_to_create, number_of_broken_files);
+    println!("Collected {initial_files_number} files to check, creating {all_broken_files_to_create} broken files ({number_of_broken_files} per file)");
     println!("Using character_mode - {character_mode}, used special words(only works with character_mode) - {special_words:?}({} items)", special_words.len());
 
     let atomic_counter = AtomicU32::new(0);
@@ -26,7 +24,7 @@ fn main() {
         |full_name| {
             let idx = atomic_counter.fetch_add(1, Ordering::Relaxed);
             if idx % 100 == 0 {
-                println!("Processed {}/{} broken files", idx, initial_files_number);
+                println!("Processed {idx}/{initial_files_number} broken files");
             }
 
             let Some((file_name, extension)) = read_file_name_extension(&full_name) else {
@@ -34,34 +32,35 @@ fn main() {
             };
 
             if character_mode {
-                process_file_characters(full_name, file_name, &output_path, extension, number_of_broken_files as u64, &special_words);
+                process_file_characters(&full_name, &file_name, &output_path, &extension, number_of_broken_files as u64, &special_words);
             } else {
-                process_file_bytes(full_name, file_name, &output_path, extension, number_of_broken_files as u64);
+                process_file_bytes(&full_name, &file_name, &output_path, &extension, number_of_broken_files as u64);
             }
         }
     });
 }
 
-fn process_file_bytes(original_name: String, file_name: String, output_path: &str, extension: String, repeats: u64) {
-    let data_vector: Vec<u8> = match fs::read(&original_name) {
-        Ok(t) => t,
-        Err(_) => {
-            println!("Failed to read data from file {:?}!", original_name);
-            return;
-        }
+fn process_file_bytes(original_name: &str, file_name: &str, output_path: &str, extension: &str, repeats: u64) {
+    let data_vector: Vec<u8> = if let Ok(t) = fs::read(original_name) {
+        t
+    } else {
+        println!("Failed to read data from file {original_name:?}!");
+        return;
     };
 
     let mut thread_rng = thread_rng();
 
     for idx in 0..repeats {
-        let new_file_name = format!("{output_path}/{file_name}{idx}.{extension}");
-        let mut file_handler = match OpenOptions::new().create(true).write(true).open(&new_file_name) {
-            Ok(t) => t,
-            Err(_) => {
-                println!("Failed to create file {}", new_file_name);
-                return;
+        let new_file_name;
+        loop {
+            let random_u64: u64 = thread_rng.gen();
+            let temp_file_name = format!("{output_path}/{file_name}_IDX_{idx}_RAND_{random_u64}.{extension}");
+            if !Path::new(&temp_file_name).exists() {
+                new_file_name = temp_file_name;
+                break;
             }
-        };
+        }
+
         let Some(mut data) = process_single_general(&mut thread_rng, &data_vector) else {
             continue;
         };
@@ -75,33 +74,34 @@ fn process_file_bytes(original_name: String, file_name: String, output_path: &st
             }
         }
 
-        if file_handler.write_all(&data).is_err() {
-            println!("Failed to save data to file {}", new_file_name);
+        if let Err(e) = fs::write(&new_file_name, &data) {
+            println!("Failed to save data to file {new_file_name} - {e}");
             continue;
         }
     }
 }
 
-fn process_file_characters(original_name: String, file_name: String, output_path: &str, extension: String, repeats: u64, special_words: &[String]) {
-    let data_vector: Vec<char> = match fs::read_to_string(&original_name) {
-        Ok(t) => t.chars().collect(),
-        Err(_) => {
-            println!("Failed to read data from file {:?}!", original_name);
-            return;
-        }
+fn process_file_characters(original_name: &str, file_name: &str, output_path: &str, extension: &str, repeats: u64, special_words: &[String]) {
+    let data_vector: Vec<char> = if let Ok(t) = fs::read_to_string(original_name) {
+        t.chars().collect()
+    } else {
+        println!("Failed to read data from file {original_name:?}!");
+        return;
     };
 
     let mut thread_rng = thread_rng();
 
     for idx in 0..repeats {
-        let new_file_name = format!("{output_path}/{file_name}{idx}.{extension}");
-        let mut file_handler = match OpenOptions::new().create(true).write(true).open(&new_file_name) {
-            Ok(t) => t,
-            Err(_) => {
-                println!("Failed to create file {}", new_file_name);
-                return;
+        let new_file_name;
+        loop {
+            let random_u64: u64 = thread_rng.gen();
+            let temp_file_name = format!("{output_path}/{file_name}_IDX_{idx}_RAND_{random_u64}.{extension}");
+            if !Path::new(&temp_file_name).exists() {
+                new_file_name = temp_file_name;
+                break;
             }
-        };
+        }
+
         let Some(mut data) = process_single_general(&mut thread_rng, &data_vector) else {
             continue;
         };
@@ -123,8 +123,8 @@ fn process_file_characters(original_name: String, file_name: String, output_path
             }
         }
 
-        if file_handler.write_all(data.into_iter().collect::<String>().as_bytes()).is_err() {
-            println!("Failed to save data to file {}", new_file_name);
+        if let Err(e) = fs::write(&new_file_name, data.into_iter().collect::<String>().as_bytes()) {
+            println!("Failed to save data to file {new_file_name} - {e}");
             continue;
         }
     }
@@ -185,7 +185,7 @@ fn add_random_words(rng: &mut ThreadRng, data: &mut Vec<char>, words_number: u32
 
 fn split_content<T>(rng: &mut ThreadRng, data: &mut Vec<T>) {
     let idx = get_random_idx(rng, data.as_slice());
-    data.truncate(idx)
+    data.truncate(idx);
 }
 
 fn remove_random_items<T>(rng: &mut ThreadRng, data: &mut Vec<T>, item_number: usize) {
@@ -204,6 +204,7 @@ where
         data[idx] = rng.gen::<T>();
     }
 }
+
 fn modify_random_char_items(rng: &mut ThreadRng, data: &mut Vec<char>, item_number: usize) {
     for _ in 0..item_number {
         let idx = get_random_idx(rng, data.as_slice());

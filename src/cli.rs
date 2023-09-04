@@ -48,21 +48,21 @@ pub(crate) fn parse_cli() -> (Vec<String>, String, u32, bool, Vec<String>) {
         process::exit(1);
     }
 
-    let files_to_check = collect_files_to_check(cli.input_path);
+    let files_to_check = collect_files_to_check(&cli.input_path);
 
     (files_to_check, cli.output_path, cli.number_of_broken_files, cli.character_mode.unwrap_or(false), cli.special_words.unwrap_or(Vec::new()))
 }
 
-fn collect_files_to_check(input_path: String) -> Vec<String> {
+fn collect_files_to_check(input_path: &str) -> Vec<String> {
     if !Path::new(&input_path).exists() {
-        println!("Path should exists {}", input_path);
+        println!("Path should exists {input_path}");
         process::exit(1);
     }
 
     let mut files_to_check = Vec::new();
-    for i in WalkDir::new(&input_path).max_depth(999).into_iter().flatten() {
+    for i in WalkDir::new(input_path).max_depth(999).into_iter().flatten() {
         let path = i.path();
-        if i.path().is_file() {
+        if path.is_file() {
             files_to_check.push(path.to_string_lossy().to_string());
         }
     }

@@ -1,6 +1,6 @@
 [package]
 name = "create_broken_files"
-version = "3.0.0"
+version = "3.0.1"
 authors = ["Rafał Mikrut <mikrutrafal@protonmail.com>"]
 edition = "2021"
 description = "Create broken files from other ones"
@@ -11,5 +11,5 @@ license = "MIT"
 [dependencies]
 rand = "0.8.5"
 rayon = "1.7.0"
-clap = { version = "4.4.1", features = ["derive"] }
+clap = { version = "4.4.2", features = ["derive"] }
 jwalk = "0.8.1"
