@@ -3,6 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::cli::Cli;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -12,13 +13,20 @@ mod cli;
 fn main() {
     cli::parse_cli();
 
-    let (files_to_check, output_path, number_of_broken_files, character_mode, special_words) = cli::parse_cli();
-    let all_broken_files_to_create = files_to_check.len() * number_of_broken_files as usize;
+    let (files_to_check, settings) = cli::parse_cli();
+    let all_broken_files_to_create = files_to_check.len() * settings.number_of_broken_files as usize;
     let initial_files_number = files_to_check.len();
-    println!("Collected {initial_files_number} files to check, creating {all_broken_files_to_create} broken files ({number_of_broken_files} per file)");
-    println!("Using character_mode - {character_mode}, used special words(only works with character_mode) - {special_words:?}({} items)", special_words.len());
+    println!("Collected {initial_files_number} files to check, creating {all_broken_files_to_create} broken files ({} per file)", settings.number_of_broken_files);
+    println!(
+        "Using character_mode - {}, used special words(only works with character_mode) - {:?}({} items), used connecting multiple files - {}",
+        settings.character_mode,
+        settings.special_words,
+        settings.special_words.len(),
+        settings.connect_multiple_files
+    );
 
     let atomic_counter = AtomicU32::new(0);
+    let files_to_check_clone = files_to_check.clone();
 
     files_to_check.into_par_iter().for_each({
         |full_name| {
@@ -31,16 +39,16 @@ fn main() {
                 return;
             };
 
-            if character_mode {
-                process_file_characters(&full_name, &file_name, &output_path, &extension, number_of_broken_files as u64, &special_words);
+            if settings.character_mode {
+                process_file_characters(&full_name, &file_name, &extension, &files_to_check_clone, &settings);
             } else {
-                process_file_bytes(&full_name, &file_name, &output_path, &extension, number_of_broken_files as u64);
+                process_file_bytes(&full_name, &file_name, &extension, &files_to_check_clone, &settings);
             }
         }
     });
 }
 
-fn process_file_bytes(original_name: &str, file_name: &str, output_path: &str, extension: &str, repeats: u64) {
+fn process_file_bytes(original_name: &str, file_name: &str, extension: &str, files: &[String], settings: &Cli) {
     let data_vector: Vec<u8> = if let Ok(t) = fs::read(original_name) {
         t
     } else {
@@ -50,11 +58,11 @@ fn process_file_bytes(original_name: &str, file_name: &str, output_path: &str, e
 
     let mut thread_rng = thread_rng();
 
-    for idx in 0..repeats {
+    for idx in 0..settings.number_of_broken_files {
         let new_file_name;
         loop {
             let random_u64: u64 = thread_rng.gen();
-            let temp_file_name = format!("{output_path}/{file_name}_IDX_{idx}_RAND_{random_u64}.{extension}");
+            let temp_file_name = format!("{}/{file_name}_IDX_{idx}_RAND_{random_u64}.{extension}", settings.output_path);
             if !Path::new(&temp_file_name).exists() {
                 new_file_name = temp_file_name;
                 break;
@@ -65,14 +73,12 @@ fn process_file_bytes(original_name: &str, file_name: &str, output_path: &str, e
             continue;
         };
 
-        if thread_rng.gen_bool(0.5) {
-            let items_random = thread_rng.gen_range(1..6);
-            let changed_items = min(data.len() / 5, items_random);
-            modify_random_items(&mut thread_rng, &mut data, changed_items);
-            if data.is_empty() {
-                continue;
-            }
+        if settings.connect_multiple_files {
+            let additional_content = load_content_of_files(&mut thread_rng, 0.1, files);
+            data.extend(additional_content);
         }
+
+        modify_random_bytes(&mut thread_rng, 0.5, &mut data);
 
         if let Err(e) = fs::write(&new_file_name, &data) {
             println!("Failed to save data to file {new_file_name} - {e}");
@@ -81,7 +87,7 @@ fn process_file_bytes(original_name: &str, file_name: &str, output_path: &str, e
     }
 }
 
-fn process_file_characters(original_name: &str, file_name: &str, output_path: &str, extension: &str, repeats: u64, special_words: &[String]) {
+fn process_file_characters(original_name: &str, file_name: &str, extension: &str, files: &[String], settings: &Cli) {
     let data_vector: Vec<char> = if let Ok(t) = fs::read_to_string(original_name) {
         t.chars().collect()
     } else {
@@ -91,11 +97,11 @@ fn process_file_characters(original_name: &str, file_name: &str, output_path: &s
 
     let mut thread_rng = thread_rng();
 
-    for idx in 0..repeats {
+    for idx in 0..settings.number_of_broken_files {
         let new_file_name;
         loop {
             let random_u64: u64 = thread_rng.gen();
-            let temp_file_name = format!("{output_path}/{file_name}_IDX_{idx}_RAND_{random_u64}.{extension}");
+            let temp_file_name = format!("{}/{file_name}_IDX_{idx}_RAND_{random_u64}.{extension}", settings.output_path);
             if !Path::new(&temp_file_name).exists() {
                 new_file_name = temp_file_name;
                 break;
@@ -106,21 +112,16 @@ fn process_file_characters(original_name: &str, file_name: &str, output_path: &s
             continue;
         };
 
-        if thread_rng.gen_bool(0.5) {
-            let items_random = thread_rng.gen_range(1..6);
-            let changed_items = min(data.len() / 5, items_random);
-            modify_random_char_items(&mut thread_rng, &mut data, changed_items);
-            if data.is_empty() {
-                continue;
-            }
+        if settings.connect_multiple_files {
+            let additional_content = load_content_of_files(&mut thread_rng, 0.1, files);
+            let st = String::from_utf8_lossy(&additional_content);
+            data.extend(st.chars());
         }
 
-        if !special_words.is_empty() && thread_rng.gen_bool(0.5) {
-            let items_random = thread_rng.gen_range(1..5);
-            add_random_words(&mut thread_rng, &mut data, items_random, special_words);
-            if data.is_empty() {
-                continue;
-            }
+        modify_random_char_items(&mut thread_rng, 0.5, &mut data);
+
+        if !settings.special_words.is_empty() {
+            add_random_words(&mut thread_rng, 0.5, &mut data, &settings.special_words);
         }
 
         if let Err(e) = fs::write(&new_file_name, data.into_iter().collect::<String>().as_bytes()) {
@@ -130,36 +131,41 @@ fn process_file_characters(original_name: &str, file_name: &str, output_path: &s
     }
 }
 
+fn load_content_of_files(thread_rng: &mut ThreadRng, chance: f64, files: &[String]) -> Vec<u8> {
+    assert!(!files.is_empty());
+    if !thread_rng.gen_bool(chance) {
+        return Vec::new();
+    }
+
+    let files_number = thread_rng.gen_range(1..8);
+    let choosen_files = files.choose_multiple(thread_rng, files_number).collect::<Vec<_>>();
+    choosen_files.iter().flat_map(|e| fs::read(e).unwrap_or_default()).collect()
+}
+
 fn process_single_general<T>(thread_rng: &mut ThreadRng, data_vector: &[T]) -> Option<Vec<T>>
 where
     T: Clone,
     rand::distributions::Standard: Distribution<T>,
 {
-    let mut data = data_vector.to_vec();
-    if data.is_empty() {
+    if data_vector.is_empty() {
         return None;
     }
+    let mut data = data_vector.to_vec();
 
-    if thread_rng.gen_bool(0.5) {
-        split_content(thread_rng, &mut data);
-        if data.is_empty() {
-            return None;
-        }
-    }
+    split_content(thread_rng, 0.2, &mut data)?;
 
-    if thread_rng.gen_bool(0.5) {
-        let items_random = thread_rng.gen_range(1..6);
-        let changed_items = min(data.len() / 5, items_random);
-        remove_random_items(thread_rng, &mut data, changed_items);
-        if data.is_empty() {
-            return None;
-        }
-    }
+    remove_random_items(thread_rng, 0.5, &mut data)?;
 
     Some(data)
 }
 
-fn add_random_words(rng: &mut ThreadRng, data: &mut Vec<char>, words_number: u32, words: &[String]) {
+fn add_random_words(rng: &mut ThreadRng, chance: f64, data: &mut Vec<char>, words: &[String]) {
+    assert!(!data.is_empty());
+    if !rng.gen_bool(chance) {
+        return;
+    }
+
+    let words_number = rng.gen_range(1..5);
     for _ in 0..words_number {
         let mut word = words.choose(rng).unwrap().chars().collect::<Vec<_>>();
         if rng.gen_bool(0.1) {
@@ -171,7 +177,7 @@ fn add_random_words(rng: &mut ThreadRng, data: &mut Vec<char>, words_number: u32
         if rng.gen_bool(0.01) {
             word.insert(0, '\n');
         }
-        if rng.gen_bool(0.4) {
+        if rng.gen_bool(0.3) {
             word.push(' ');
         }
 
@@ -183,29 +189,70 @@ fn add_random_words(rng: &mut ThreadRng, data: &mut Vec<char>, words_number: u32
     }
 }
 
-fn split_content<T>(rng: &mut ThreadRng, data: &mut Vec<T>) {
+fn split_content<T>(rng: &mut ThreadRng, chance: f64, data: &mut Vec<T>) -> Option<()> {
+    assert!(!data.is_empty());
+    if !rng.gen_bool(chance) {
+        return Some(());
+    }
+
     let idx = get_random_idx(rng, data.as_slice());
     data.truncate(idx);
+
+    if data.is_empty() {
+        None
+    } else {
+        Some(())
+    }
 }
 
-fn remove_random_items<T>(rng: &mut ThreadRng, data: &mut Vec<T>, item_number: usize) {
+fn remove_random_items<T>(rng: &mut ThreadRng, chance: f64, data: &mut Vec<T>) -> Option<()> {
+    assert!(!data.is_empty());
+    if !rng.gen_bool(chance) {
+        return Some(());
+    }
+
+    let items_random = rng.gen_range(1..6);
+    let item_number = min(data.len() / 5, items_random);
+
     for _ in 0..item_number {
         let idx = get_random_idx(rng, data.as_slice());
         data.remove(idx);
     }
-}
 
-fn modify_random_items<T>(rng: &mut ThreadRng, data: &mut Vec<T>, item_number: usize)
-where
-    rand::distributions::Standard: rand::distributions::Distribution<T>,
-{
-    for _ in 0..item_number {
-        let idx = get_random_idx(rng, data.as_slice());
-        data[idx] = rng.gen::<T>();
+    if data.is_empty() {
+        None
+    } else {
+        Some(())
     }
 }
 
-fn modify_random_char_items(rng: &mut ThreadRng, data: &mut Vec<char>, item_number: usize) {
+fn modify_random_bytes(rng: &mut ThreadRng, chance: f64, data: &mut Vec<u8>) {
+    assert!(!data.is_empty());
+    if !rng.gen_bool(chance) {
+        return;
+    }
+
+    let items_random = rng.gen_range(1..6);
+    let item_number = min(data.len() / 5, items_random);
+    for _ in 0..item_number {
+        let idx = get_random_idx(rng, data.as_slice());
+        match rng.gen_range(0..3) {
+            0 => data[idx] = data[idx].overflowing_add(1).0,
+            1 => data[idx] = data[idx].overflowing_sub(1).0,
+            2 => data[idx] = rng.gen(),
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn modify_random_char_items(rng: &mut ThreadRng, chance: f64, data: &mut Vec<char>) {
+    assert!(!data.is_empty());
+    if !rng.gen_bool(chance) {
+        return;
+    }
+
+    let items_random = rng.gen_range(1..6);
+    let item_number = min(data.len() / 5, items_random);
     for _ in 0..item_number {
         let idx = get_random_idx(rng, data.as_slice());
         data[idx] = rng.gen_range(0..=255).into();
@@ -240,7 +287,16 @@ fn test_add_random_words() {
     for _ in 0..20 {
         let mut data = "SSSSS_____LLLLLKKKKK".chars().collect::<Vec<_>>();
         assert_eq!(data.len(), 20);
-        add_random_words(&mut rng, &mut data, 1, &["CZCZEK".to_string()]);
-        assert_eq!(data.len(), 26);
+        add_random_words(&mut rng, 1.0, &mut data, &["CZCZEK".to_string()]);
     }
+}
+
+#[test]
+fn test_load_content_of_files() {
+    let mut rng = thread_rng();
+    let files = vec!["RRRRRRRRRRRRRRRRRRRRRRrtest.txt".to_string()];
+    let _ = load_content_of_files(&mut rng, 1.0, &files);
+
+    let new_files = (0..50).into_iter().map(|e| format!("RRRRRRRRRRRRRRRRRRRRRRrtest{e}.txt")).collect::<Vec<_>>();
+    let _ = load_content_of_files(&mut rng, 1.0, &new_files);
 }
